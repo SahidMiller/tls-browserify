@@ -6,7 +6,7 @@
   "license": "MIT",
   "main": "index.js",
   "dependencies": {
-    "node-forge": "^0.7.0"
+    "node-forge": "^0.10.0"
   },
   "repository": {
     "type": "git",
@@ -20,8 +20,5 @@
   "bugs": {
     "url": "https://github.com/emersion/tls-browserify/issues"
   },
-  "homepage": "https://github.com/emersion/tls-browserify",
-  "browser": {
-    "node-forge": "node-forge/dist/forge.min.js"
-  }
+  "homepage": "https://github.com/emersion/tls-browserify"
 }
