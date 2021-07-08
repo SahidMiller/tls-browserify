@@ -55,13 +55,75 @@ class TLSSocket extends Stream.Duplex {
   setTimeout() {}
   setNoDelay() {}
 
+  createCaStore() {
+    const rootCertificates = this._options.rootCertificates || [];
+    const caStore = forge.pki.createCaStore([]);
+
+    for (let i = 0; i < rootCertificates.length; i++) {
+      const rootCertificate = rootCertificates[i];
+      try {
+        caStore.addCertificate(rootCertificate);
+      } catch (err) {}
+    }
+
+    return caStore;
+  }
+
   init() {
-    var self = this;
+    const self = this;
+    const options = this._options;
+    const rootCertificates = options.rootCertificates || [];
+
+    //If no root certificates but no cert or rejectUnauthorized is true, then stop.
+    if (
+      !rootCertificates.length &&
+      !options.servername &&
+      !options.rejectUnauthorized
+    ) {
+      throw new Error(
+        "Cannot verify nor skip verification. Provide options.rootCertificates or set options.rejectUnauthorized to false"
+      );
+    }
+
+    const caStore = this.createCaStore();
 
     this.ssl = forge.tls.createConnection({
       server: false,
+      caStore: caStore,
       verify: function (connection, verified, depth, certs) {
-        return true;
+        const currentCert = certs[depth];
+
+        if (!options.rejectUnauthorized || !options.servername) {
+          self.log("[tls] server certificate verification skipped");
+          return true;
+        }
+
+        if (depth === 0) {
+          var cn = certs[0].subject.getField("CN").value;
+          if (cn !== options.servername) {
+            verified = {
+              alert: forge.tls.Alert.Description.bad_certificate,
+              message: "Certificate common name does not match hostname.",
+            };
+            console.warn("[tls] " + cn + " !== " + options.servername);
+          }
+
+          try {
+            if (forge.pki.verifyCertificateChain(caStore, certs)) {
+              caStore.addCertificate(currentCert);
+            } else {
+              self.log("[tls] failed to verify certificate chain");
+              return false;
+            }
+          } catch (err) {
+            self.log("[tls] failed to verify certificate chain");
+            return false;
+          }
+
+          self.log("[tls] server certificate verified");
+        }
+
+        return verified;
       },
       connected: function (connection) {
         self.log("[tls] connected");
@@ -189,13 +251,10 @@ exports.connect = function (/* [port, host], options, cb */ ...args) {
   };
   options = util._extend(defaults, options || {});
 
-  var hostname =
-    options.servername ||
-    options.host ||
-    (options.socket && options.socket._host);
-
   var socket = new TLSSocket(options.socket, {
+    servername: options.host,
     rejectUnauthorized: options.rejectUnauthorized,
+    rootCertificates: options.rootCertificates,
   });
 
   // Not even started connecting yet (or probably resolving dns address),
