@@ -1,8 +1,8 @@
-var net = require("net");
 var util = require("util");
 var assert = require("assert");
 var Stream = require("stream");
 var forge = require("node-forge");
+const normalizeArgs = require("./normalizeArgs");
 
 // Compatibility shim for the browser
 if (forge.forge) {
@@ -15,10 +15,10 @@ class TLSSocket extends Stream.Duplex {
     //Create new socket if none passed, God willing.
     super();
 
-    // Disallow wrapping TLSSocket in TLSSocket
-    assert(!(socket instanceof TLSSocket));
+    if (!socket) {
+      throw new TypeError("Argument 'socket' is required");
+    }
 
-    options.debug = false;
     this._options = options;
     this._secureEstablished = false;
     this._chunks = [];
@@ -27,7 +27,7 @@ class TLSSocket extends Stream.Duplex {
     // distinguishable from regular ones.
     this.encrypted = true;
 
-    this._socket = socket || new net.Socket();
+    this._socket = socket;
 
     // these are simply passed through
     this._socket.on("close", (hadError) => this.emit("close", hadError));
@@ -228,19 +228,23 @@ class TLSSocket extends Stream.Duplex {
   }
 }
 
+function isObject(val) {
+  return val !== null && typeof val === "object";
+}
+
 function normalizeConnectArgs(listArgs) {
-  var args = net._normalizeArgs(listArgs);
+  var args = normalizeArgs(listArgs);
   var options = args[0];
   var cb = args[1];
-  if (util.isObject(listArgs[1])) {
+  if (isObject(listArgs[1])) {
     options = util._extend(options, listArgs[1]);
-  } else if (util.isObject(listArgs[2])) {
+  } else if (isObject(listArgs[2])) {
     options = util._extend(options, listArgs[2]);
   }
   return cb ? [options, cb] : [options];
 }
 
-exports.connect = function (/* [port, host], options, cb */ ...args) {
+exports.connect = function (...args) {
   var args = normalizeConnectArgs(args);
   var options = args[0];
   var cb = args[1];
@@ -249,6 +253,7 @@ exports.connect = function (/* [port, host], options, cb */ ...args) {
     rejectUnauthorized: "0" !== process.env.NODE_TLS_REJECT_UNAUTHORIZED,
     ciphers: null, //tls.DEFAULT_CIPHERS
   };
+
   options = util._extend(defaults, options || {});
 
   var socket = new TLSSocket(options.socket, {
@@ -257,24 +262,9 @@ exports.connect = function (/* [port, host], options, cb */ ...args) {
     rootCertificates: options.rootCertificates,
   });
 
-  // Not even started connecting yet (or probably resolving dns address),
-  // catch socket errors and assign handle.
-  if (options.socket) {
-    options.socket.once("connect", function () {
-      /*assert(options.socket._handle);
-			socket._handle = options.socket._handle;
-			socket._handle.owner = socket;
-			socket.emit('connect');*/
-    });
-  }
-
-  if (options.servername) {
-    //socket.setServername(options.servername);
-  }
-
   if (cb) socket.once("secure", cb);
 
-  if (!options.socket) {
+  if (!options.disableAutoConnect) {
     socket.connect({
       host: options.host,
       port: options.port,
